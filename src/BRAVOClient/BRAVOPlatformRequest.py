@@ -3,6 +3,8 @@ import json
 import os
 import pickle as pkl
 import datetime
+import numpy as np 
+import zstandard as zstd
 
 DefaultConfigurations = {
     "TimeSeriesRecording": {
@@ -221,9 +223,8 @@ class BRAVOPlatformRequest:
             else:
                 raise Exception(f"Network Error: {response.status_code}")
 
-    def SetRecordingTimeShift(self, participant_uid, analysis_uid, recording_uid, shift=0):
-        form = {"RequestType": "RemoveParticipant", "ParticipantId": participant_uid, "AnalysisId": analysis_uid,
-                "RecordingId": recording_uid, "Alignment": shift}
+    def SetRecordingTimeShift(self, participant_uid, recording_uid, shift=0):
+        form = {"RequestType": "Recording", "ParticipantId": participant_uid, "RecordingId": recording_uid, "Alignment": shift}
         response = self.query("/api/setRecordingTimeShift", data=form)
         if response.status_code == 200:
             return True
@@ -248,13 +249,12 @@ class BRAVOPlatformRequest:
             else:
                 raise Exception(f"Network Error: {response.status_code}")
 
-    def QueryTimeSeriesAnalysis(self, participant_uid, recording_uid=None, therapy_uid=None, config=None,
+    def QueryTimeSeriesAnalysis(self, participant_uid, recording_uid=None, config=None,
                                 refresh=False):
         form = {"ParticipantId": participant_uid, "RequestType": "Overview"}
         if recording_uid:
             form["RequestType"] = "RequestData"
-            form["AnalysisId"] = recording_uid
-            form["TherapyId"] = therapy_uid
+            form["RecordingId"] = recording_uid
             form["ActiveChannels"] = "RequestAllChannel"
 
         if refresh:
@@ -263,13 +263,20 @@ class BRAVOPlatformRequest:
         if config:
             form["ProcessingConfiguration"] = config
 
-        response = self.query("/api/queryTimeseriesAnalysis", data=form)
+        response = self.query("/api/v2/queryTimeseriesAnalysis", data=form)
         if response.status_code == 200:
             if refresh:
-                return self.QueryTimeSeriesAnalysis(participant_uid, recording_uid, therapy_uid, config)
+                return self.QueryTimeSeriesAnalysis(participant_uid, recording_uid, config)
 
-            payload = response.json()
-            return payload
+            if recording_uid:
+                metadata = response.headers.get("X-Timeseries-Metadata")
+                payload = json.loads(metadata)
+                payload["Data"] = zstd.decompress(response.content)
+                payload["Data"] = np.frombuffer(payload["Data"], dtype=np.float64).reshape(payload["DataShape"])
+                return payload
+            else:
+                payload = response.json()
+                return payload
         else:
             if response.status_code == 400:
                 raise Exception(f"Network Error: {response.json()}")
