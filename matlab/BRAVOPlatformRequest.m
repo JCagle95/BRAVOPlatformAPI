@@ -165,7 +165,7 @@ classdef BRAVOPlatformRequest
                             res.Response = response(i).Result{page}{question};
                             
                             % Append to cell array
-                            responsesList{end+1} = res; %#ok<AGROW>
+                            responsesList{end+1} = res;
                         end
                     end
                     SurveyResponse.Response = [responsesList{:}];
@@ -232,8 +232,8 @@ classdef BRAVOPlatformRequest
                 responseHeaders = responseMessage.Header;
                 metadata = responseHeaders.getFields('X-Timeseries-Metadata');
                 response = jsondecode(metadata.Value);
-                response.Data = zmat(responseMessage.Body.Data, 0, 'zstd');
-                response.Data = reshape(typecast(response.Data, 'double'), response.DataShape');
+                response.Data = zstd_decompress(responseMessage.Body.Data);
+                response.Data = reshape(typecast(response.Data, 'double'), fliplr(response.DataShape'))';
                 return
             end
         end
