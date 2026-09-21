@@ -349,7 +349,7 @@ class BRAVOPlatformRequest:
             else:
                 raise Exception(f"Network Error: {response.status_code}")
 
-    def SetRecordingTimeShift(self, participant_uid, recording_uid, shift=0):
+    def SetRecordingTimeShift(self, participant_uid, recording_uid, shift=0, scale=1.0):
         """Set the time alignment shift for a recorded signal.
 
         :param participant_uid: Unique identifier for the participant.
@@ -358,11 +358,13 @@ class BRAVOPlatformRequest:
         :type recording_uid: str
         :param shift: Time-alignment offset to apply to the recording.
         :type shift: int or float
+        :param scale: Scale factor to apply to the recording.
+        :type scale: float
         :return: ``True`` if the shift is accepted.
         :rtype: bool
         :raises Exception: If the update request fails.
         """
-        form = {"RequestType": "Recording", "ParticipantId": participant_uid, "RecordingId": recording_uid, "Alignment": shift}
+        form = {"RequestType": "Recording", "ParticipantId": participant_uid, "RecordingId": recording_uid, "Alignment": shift, "Scale": scale}
         response = self.query("/api/setRecordingTimeShift", data=form)
         if response.status_code == 200:
             return True
