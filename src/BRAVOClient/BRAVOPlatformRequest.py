@@ -5,6 +5,7 @@ import pickle as pkl
 import datetime
 import numpy as np 
 import zstandard as zstd
+import io, struct
 
 """BRAVO platform client helpers.
 
@@ -820,6 +821,81 @@ class BRAVOPlatformRequest:
         form = {
             "File": file,
             "DataType": (None, "MATFile"),
+            "ParticipantId": (None, participant),
+            "Institute": (None, self.User["Institute"]),
+            "Metadata": (None, json.dumps(metadata))
+        }
+
+        response = self.query("/api/uploadData", files=form, content_type=None)
+        if response.status_code == 200:
+            return True
+        elif response.status_code == 301:
+            return True
+        else:
+            if response.status_code == 400:
+                raise Exception(f"Network Error: {response.json()}")
+            else:
+                raise Exception(f"Network Error: {response.status_code}")
+            
+    def GenerateBRAVOStructure(self, recording):
+        """Generate a zstd-compressed BRAVO-compatible `.bdat` byte structure for upload.
+
+        :param recording: Dictionary with 'Data', 'Metadata', 'ChannelNames', 'DataType', 'SamplingRate'.
+        :type recording: dict
+        :return: Zstandard-compressed bytes.
+        :rtype: bytes
+        """
+        for key in ("Data", "Metadata", "ChannelNames", "DataType", "SamplingRate"):
+            if key not in recording:
+                raise Exception("Recording dictionary must contain 'Data', 'Metadata', 'ChannelNames', 'DataType', and 'SamplingRate' keys.")
+
+        names = [c.encode("utf-8") for c in recording["ChannelNames"]]
+        dtype = recording["DataType"].encode("utf-8")
+        meta = json.dumps(recording["Metadata"]).encode("utf-8")
+        data = recording["Data"]
+
+        # Header and Size
+        header = (b"BRAVOStructure"
+                  + struct.pack("<i", len(dtype)) + dtype
+                  + struct.pack("<d", float(recording["SamplingRate"]))
+                  + struct.pack("<i", len(names))
+                  + struct.pack(f"<{len(names)}i", *map(len, names))
+                  + b"".join(names))
+
+        # Server uses one-shot decompress; one-shot compress always writes the content size.
+        n_cols = data.shape[1]
+        total = len(header) + len(names) * (4 + 8 * n_cols) + 4 + len(meta)
+        buf = np.empty(total, dtype=np.uint8)
+        buf[:len(header)] = np.frombuffer(header, dtype=np.uint8)
+        pos = len(header)
+        row_prefix = np.frombuffer(struct.pack("<i", n_cols), dtype=np.uint8)
+        for i in range(len(names)):
+            buf[pos:pos + 4] = row_prefix
+            buf[pos + 4:pos + 4 + 8 * n_cols].view(np.float64)[:] = data[i, :]
+            pos += 4 + 8 * n_cols
+        buf[pos:pos + 4] = np.frombuffer(struct.pack("<i", len(meta)), dtype=np.uint8)
+        buf[pos + 4:] = np.frombuffer(meta, dtype=np.uint8)
+        return zstd.ZstdCompressor(level=3, threads=-1, write_content_size=True).compress(buf)
+    
+    def UploadBRAVOStructure(self, participant, file, metadata=dict()):
+        """Upload a customized `.mat` file to the BRAVO platform.
+
+        :param participant: Participant identifier for the uploaded data.
+        :type participant: str
+        :param file: File handle or tuple pair representing the uploaded file.
+        :type file: tuple or file-like
+        :param metadata: Additional upload metadata, including a default start time when omitted.
+        :type metadata: dict
+        :return: ``True`` when the upload succeeds.
+        :rtype: bool
+        :raises Exception: If the upload request fails.
+        """
+        if not "StartTime" in metadata:
+            metadata["StartTime"] = datetime.datetime.now(datetime.timezone.utc).timestamp()
+
+        form = {
+            "File": file,
+            "DataType": (None, "BRAVOStructure"),
             "ParticipantId": (None, participant),
             "Institute": (None, self.User["Institute"]),
             "Metadata": (None, json.dumps(metadata))
