@@ -318,6 +318,28 @@ class BRAVOPlatformRequest:
             else:
                 raise Exception(f"Network Error: {response.status_code}")
 
+    def QueryTherapyHistoryRaw(self, participant_uid, request_type="TherapyGroups"):
+        """Return therapy history components for a participant.
+
+        :param participant_uid: Unique identifier for the participant.
+        :type participant_uid: str
+        :param request_type: Type of therapy history data to request (e.g., "TherapyGroups", "TherapyModification").
+        :type request_type: str
+        :return: Therapy history payload returned by the BRAVO platform.
+        :rtype: dict or list
+        :raises Exception: If the server response indicates an error.
+        """
+        form = {"ParticipantId": participant_uid, "RequestType": request_type}
+        response = self.query("/api/v2/queryTherapyHistory", data=form)
+        if response.status_code == 200:
+            payload = response.json()
+            return payload
+        else:
+            if response.status_code == 400:
+                raise Exception(f"Network Error: {response.json()}")
+            else:
+                raise Exception(f"Network Error: {response.status_code}")
+
     def QueryTherapeuticEffectAnalysis(self, participant_uid, analysis_uid=None, config=None):
         """Query therapeutic-effect analysis records or a specific analysis payload.
 
